@@ -1,66 +1,28 @@
 import { createClient } from "@supabase/supabase-js";
-import type { Course } from "@/types/course";
+import type { Course, Provider } from "@/types/course";
 
-/**
- * SQL para ejecutar en el SQL Editor del dashboard de Supabase.
- * Crea la tabla `courses` y sus políticas de RLS.
- *
- * -- Extensión para generar uuids
- * create extension if not exists "pgcrypto";
- *
- * -- Tabla courses
- * create table if not exists public.courses (
- *   id uuid primary key default gen_random_uuid(),
- *   title text not null,
- *   description text not null,
- *   provider text not null,
- *   category text not null,
- *   registration_deadline date,
- *   access_url text not null,
- *   is_active boolean not null default true,
- *   created_at timestamptz not null default now()
- * );
- *
- * -- Habilitar RLS
- * alter table public.courses enable row level security;
- *
- * -- SELECT: público, cualquiera puede leer
- * create policy "courses_select_public"
- *   on public.courses
- *   for select
- *   using (true);
- *
- * -- INSERT/UPDATE/DELETE: pensado para usuarios autenticados, pero el panel
- * -- admin todavía no usa Supabase Auth (solo un password vía env var), así
- * -- que por ahora se dejan permisivas para `anon` también. Cuando se
- * -- implemente auth real, restringir estas policies a `to authenticated`.
- * create policy "courses_insert_permissive"
- *   on public.courses
- *   for insert
- *   with check (true);
- *
- * create policy "courses_update_permissive"
- *   on public.courses
- *   for update
- *   using (true)
- *   with check (true);
- *
- * create policy "courses_delete_permissive"
- *   on public.courses
- *   for delete
- *   using (true);
- */
+
+type CourseRow = Omit<Course, "provider">;
 
 export type Database = {
   public: {
     Tables: {
       courses: {
-        Row: Course;
-        Insert: Omit<Course, "id" | "created_at"> & {
+        Row: CourseRow;
+        Insert: Omit<CourseRow, "id" | "created_at"> & {
           id?: string;
           created_at?: string;
         };
-        Update: Partial<Omit<Course, "id" | "created_at">>;
+        Update: Partial<Omit<CourseRow, "id" | "created_at">>;
+        Relationships: [];
+      };
+      providers: {
+        Row: Provider;
+        Insert: Omit<Provider, "id" | "created_at"> & {
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<Provider, "id" | "created_at">>;
         Relationships: [];
       };
     };
