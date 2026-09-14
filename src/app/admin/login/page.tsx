@@ -2,12 +2,11 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { verifyAdminPassword } from "./actions";
-
-const ADMIN_AUTH_KEY = "gmet_admin_auth";
+import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 export default function AdminLoginPage() {
   const router = useRouter();
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -17,16 +16,20 @@ export default function AdminLoginPage() {
     setIsSubmitting(true);
     setError(null);
 
-    const isValid = await verifyAdminPassword(password);
+    const supabase = createSupabaseBrowserClient();
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-    if (!isValid) {
+    if (signInError) {
       setIsSubmitting(false);
-      setError("Contraseña incorrecta.");
+      setError("Email o contraseña incorrectos.");
       return;
     }
 
-    sessionStorage.setItem(ADMIN_AUTH_KEY, "true");
     router.push("/admin");
+    router.refresh();
   };
 
   return (
@@ -37,8 +40,24 @@ export default function AdminLoginPage() {
       >
         <h1 className="font-fredoka text-2xl text-white">GMET Admin</h1>
         <p className="mb-6 font-dmsans text-sm text-brand-blush">
-          Ingresá la contraseña para continuar
+          Ingresá tus credenciales para continuar
         </p>
+
+        <label
+          htmlFor="email"
+          className="mb-2 block font-dmsans text-sm text-gray-300"
+        >
+          Email
+        </label>
+        <input
+          id="email"
+          type="email"
+          autoFocus
+          required
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          className="mb-4 w-full rounded-lg border border-brand-plum bg-brand-dark px-3 py-2 font-dmsans text-white outline-none focus:border-brand-pink"
+        />
 
         <label
           htmlFor="password"
@@ -49,7 +68,6 @@ export default function AdminLoginPage() {
         <input
           id="password"
           type="password"
-          autoFocus
           required
           value={password}
           onChange={(event) => setPassword(event.target.value)}
@@ -65,7 +83,7 @@ export default function AdminLoginPage() {
           disabled={isSubmitting}
           className="w-full rounded-lg bg-brand-pink px-4 py-2 font-dmsans text-sm font-medium text-white transition-colors hover:bg-brand-hot disabled:opacity-60"
         >
-          {isSubmitting ? "Verificando..." : "Ingresar"}
+          {isSubmitting ? "Ingresando..." : "Ingresar"}
         </button>
       </form>
     </main>
