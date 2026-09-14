@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { supabase } from "@/lib/supabase";
-import type { Course } from "@/types/course";
+import type { Course, CourseExtracted, Provider } from "@/types/course";
 
 const CATEGORIES = [
   "Backend",
@@ -16,8 +16,12 @@ const CATEGORIES = [
   "Otro",
 ];
 
+const OTRO_CATEGORY = "Otro";
+const NEW_PROVIDER_VALUE = "__new__";
+
 interface AdminCourseFormProps {
   course?: Course | null;
+  initialValues?: CourseExtracted | null;
   onSaved: () => void;
   onCancelEdit?: () => void;
 }
@@ -25,8 +29,12 @@ interface AdminCourseFormProps {
 interface FormState {
   title: string;
   description: string;
-  provider: string;
+  providerId: string;
+  newProviderName: string;
   category: string;
+  categoryCustom: string;
+  ageRange: string;
+  status: "draft" | "published";
   registration_deadline: string;
   access_url: string;
   is_active: boolean;
@@ -35,8 +43,12 @@ interface FormState {
 const EMPTY_FORM: FormState = {
   title: "",
   description: "",
-  provider: "",
+  providerId: "",
+  newProviderName: "",
   category: CATEGORIES[0],
+  categoryCustom: "",
+  ageRange: "",
+  status: "published",
   registration_deadline: "",
   access_url: "",
   is_active: true,
@@ -48,12 +60,26 @@ const labelClass = "mb-1 block font-dmsans text-sm text-gray-300";
 
 export default function AdminCourseForm({
   course,
+  initialValues,
   onSaved,
   onCancelEdit,
 }: AdminCourseFormProps) {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [providers, setProviders] = useState<Provider[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const loadProviders = async () => {
+    const { data } = await supabase
+      .from("providers")
+      .select("*")
+      .order("name", { ascending: true });
+    setProviders((data ?? []) as Provider[]);
+  };
+
+  useEffect(() => {
+    loadProviders();
+  }, []);
 
   useEffect(() => {
     setError(null);
@@ -62,8 +88,12 @@ export default function AdminCourseForm({
         ? {
             title: course.title,
             description: course.description,
-            provider: course.provider,
+            providerId: course.provider_id ?? "",
+            newProviderName: "",
             category: course.category,
+            categoryCustom: course.category_custom ?? "",
+            ageRange: course.age_range ?? "",
+            status: course.status ?? "published",
             registration_deadline: course.registration_deadline ?? "",
             access_url: course.access_url,
             is_active: course.is_active,
@@ -72,16 +102,93 @@ export default function AdminCourseForm({
     );
   }, [course]);
 
+  useEffect(() => {
+    if (!initialValues) return;
+
+    const matchedProvider = initialValues.provider
+      ? providers.find(
+          (provider) =>
+            provider.name.toLowerCase() ===
+            initialValues.provider!.trim().toLowerCase()
+        )
+      : undefined;
+
+    const matchedCategory = initialValues.category
+      ? CATEGORIES.find(
+          (category) =>
+            category.toLowerCase() ===
+            initialValues.category!.trim().toLowerCase()
+        )
+      : undefined;
+
+    setError(null);
+    setForm({
+      title: initialValues.title ?? "",
+      description: initialValues.description ?? "",
+      providerId: matchedProvider
+        ? matchedProvider.id
+        : initialValues.provider
+          ? NEW_PROVIDER_VALUE
+          : "",
+      newProviderName: matchedProvider ? "" : initialValues.provider ?? "",
+      category: matchedCategory ?? (initialValues.category ? OTRO_CATEGORY : CATEGORIES[0]),
+      categoryCustom: matchedCategory ? "" : initialValues.category ?? "",
+      ageRange: initialValues.age_range ?? "",
+      status: "draft",
+      registration_deadline: initialValues.registration_deadline ?? "",
+      access_url: initialValues.access_url ?? "",
+      is_active: true,
+    });
+  }, [initialValues, providers]);
+
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    setIsSaving(true);
     setError(null);
+
+    const isNewProvider = form.providerId === NEW_PROVIDER_VALUE;
+
+    if (isNewProvider && !form.newProviderName.trim()) {
+      setError("Ingresá el nombre del nuevo proveedor.");
+      return;
+    }
+    if (!isNewProvider && !form.providerId) {
+      setError("Seleccioná un proveedor.");
+      return;
+    }
+    if (form.category === OTRO_CATEGORY && !form.categoryCustom.trim()) {
+      setError("Ingresá la categoría personalizada.");
+      return;
+    }
+
+    setIsSaving(true);
+
+    let providerId = form.providerId;
+
+    if (isNewProvider) {
+      const { data: newProvider, error: providerError } = await supabase
+        .from("providers")
+        .insert({ name: form.newProviderName.trim() })
+        .select()
+        .single();
+
+      if (providerError || !newProvider) {
+        setIsSaving(false);
+        setError(providerError?.message ?? "No se pudo crear el proveedor.");
+        return;
+      }
+
+      providerId = newProvider.id;
+    }
 
     const payload = {
       title: form.title,
       description: form.description,
-      provider: form.provider,
+      provider_id: providerId,
       category: form.category,
+      category_custom:
+        form.category === OTRO_CATEGORY ? form.categoryCustom.trim() : null,
+      age_range: form.ageRange.trim() || null,
+      status: form.status,
       registration_deadline: form.registration_deadline || null,
       access_url: form.access_url,
       is_active: form.is_active,
@@ -97,6 +204,8 @@ export default function AdminCourseForm({
       setError(saveError.message);
       return;
     }
+
+    if (isNewProvider) loadProviders();
 
     setForm(EMPTY_FORM);
     onSaved();
@@ -140,15 +249,36 @@ export default function AdminCourseForm({
           <label className={labelClass} htmlFor="provider">
             Proveedor
           </label>
-          <input
+          <select
             id="provider"
             required
             className={inputClass}
-            value={form.provider}
+            value={form.providerId}
             onChange={(event) =>
-              setForm({ ...form, provider: event.target.value })
+              setForm({ ...form, providerId: event.target.value })
             }
-          />
+          >
+            <option value="" disabled>
+              Seleccioná un proveedor
+            </option>
+            {providers.map((provider) => (
+              <option key={provider.id} value={provider.id}>
+                {provider.name}
+              </option>
+            ))}
+            <option value={NEW_PROVIDER_VALUE}>+ Agregar proveedor</option>
+          </select>
+
+          {form.providerId === NEW_PROVIDER_VALUE && (
+            <input
+              className={`${inputClass} mt-2`}
+              placeholder="Nombre del nuevo proveedor"
+              value={form.newProviderName}
+              onChange={(event) =>
+                setForm({ ...form, newProviderName: event.target.value })
+              }
+            />
+          )}
         </div>
 
         <div>
@@ -168,6 +298,54 @@ export default function AdminCourseForm({
                 {category}
               </option>
             ))}
+          </select>
+
+          {form.category === OTRO_CATEGORY && (
+            <input
+              className={`${inputClass} mt-2`}
+              placeholder="Escribí la categoría"
+              value={form.categoryCustom}
+              onChange={(event) =>
+                setForm({ ...form, categoryCustom: event.target.value })
+              }
+            />
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div>
+          <label className={labelClass} htmlFor="age_range">
+            Rango de edad (opcional)
+          </label>
+          <input
+            id="age_range"
+            className={inputClass}
+            placeholder='Ej: "18-35 años", "Sin límite"'
+            value={form.ageRange}
+            onChange={(event) =>
+              setForm({ ...form, ageRange: event.target.value })
+            }
+          />
+        </div>
+
+        <div>
+          <label className={labelClass} htmlFor="status">
+            Estado
+          </label>
+          <select
+            id="status"
+            className={inputClass}
+            value={form.status}
+            onChange={(event) =>
+              setForm({
+                ...form,
+                status: event.target.value as "draft" | "published",
+              })
+            }
+          >
+            <option value="published">Publicado</option>
+            <option value="draft">Borrador</option>
           </select>
         </div>
       </div>
